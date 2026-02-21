@@ -427,11 +427,17 @@ async def submit_order(message: Message, state: FSMContext) -> None:
     order_id = int(data.get("order_id", 0) or 0)
     payload: dict[str, Any] = data.get("payload", {})
     summary = payload_summary(payload)
+    should_forward_files = False
+
+    if order_id:
+        order = database.get_order(order_id) or {}
+        should_forward_files = (order.get("status") or "draft") in {"draft", ""}
 
     if order_id:
         database.finalize_order(order_id, summary)
     await send_order_to_orders_chat(message.bot, order_id, summary)
-    await forward_order_files_to_orders_chat(message.bot, order_id)
+    if should_forward_files:
+        await forward_order_files_to_orders_chat(message.bot, order_id)
 
     ok_text = get_cfg("text_submit_ok", "✅ Заявка отправлена! Менеджер скоро напишет вам в этот чат.")
     await send_step(message, ok_text, kb([nav_row(include_back=False)]))

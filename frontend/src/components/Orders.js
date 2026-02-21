@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Badge,
   Button,
@@ -15,7 +15,8 @@ import {
   Statistic,
   Table,
   Tag,
-} from 'antd';import { ShoppingCartOutlined, SyncOutlined, UserOutlined } from '@ant-design/icons';
+} from 'antd';
+import { ShoppingCartOutlined, SyncOutlined, UserOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
 
@@ -37,6 +38,42 @@ const statusColor = {
   canceled: 'red',
 };
 
+const keyLabels = {
+  file: 'Файл',
+  branch: 'Тип заявки',
+  material: 'Материал',
+  material_custom: 'Свой материал',
+  technology: 'Технология',
+  scan_type: 'Тип сканирования',
+  idea_type: 'Направление',
+  description: 'Описание',
+};
+
+const valueLabels = {
+  branch: {
+    print: '3D-печать',
+    scan: '3D-сканирование',
+    idea: 'Нет модели / Хочу придумать',
+    dialog: 'Диалог',
+  },
+  file: {
+    none: 'нет',
+    'нет': 'нет',
+  },
+};
+
+const formatPayloadValue = (key, value) => {
+  if (value === null || value === undefined || value === '') return '—';
+  const normalized = String(value);
+  return valueLabels[key]?.[normalized] || normalized;
+};
+
+const isImageFile = (file) => {
+  const mime = String(file?.mime_type || '').toLowerCase();
+  const name = String(file?.original_name || file?.file_name || '').toLowerCase();
+  return mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
+};
+
 const Orders = () => {
   const [orders, setOrders] = useState([]);
   const [stats, setStats] = useState({ total_orders: 0, new_orders: 0, active_orders: 0 });
@@ -47,12 +84,14 @@ const Orders = () => {
   const [files, setFiles] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
   const [sending, setSending] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await axios.get('/api/orders/', { params: { status_filter: statusFilter } });
-      setOrders(Array.isArray(data) ? data : []);    } catch {
+      setOrders(Array.isArray(data) ? data : []);
+    } catch {
       message.error('Не удалось загрузить заявки');
     } finally {
       setLoading(false);
@@ -62,9 +101,29 @@ const Orders = () => {
   const fetchStats = useCallback(async () => {
     try {
       const { data } = await axios.get('/api/orders/stats');
-      setStats(data || { total_orders: 0, new_orders: 0, active_orders: 0 });    } catch {
+      setStats(data || { total_orders: 0, new_orders: 0, active_orders: 0 });
+    } catch {
       setStats({ total_orders: 0, new_orders: 0, active_orders: 0 });
       message.warning('Статистика временно недоступна');
+    }
+  }, []);
+
+  const fetchOrderDetails = useCallback(async (orderId) => {
+    if (!orderId) return;
+    setChatLoading(true);
+    try {
+      const [filesResp, msgResp] = await Promise.all([
+        axios.get(`/api/orders/${orderId}/files`),
+        axios.get(`/api/orders/${orderId}/messages`),
+      ]);
+      setFiles(filesResp?.data?.files || []);
+      setChatMessages(msgResp?.data?.messages || []);
+    } catch {
+      setFiles([]);
+      setChatMessages([]);
+      message.warning('Не удалось загрузить файлы или чат по заявке');
+    } finally {
+      setChatLoading(false);
     }
   }, []);
 
@@ -76,17 +135,7 @@ const Orders = () => {
   const openOrder = async (order) => {
     setSelectedOrder(order);
     setModalVisible(true);
-    try {
-      const [filesResp, msgResp] = await Promise.all([
-        axios.get(`/api/orders/${order.id}/files`),
-        axios.get(`/api/orders/${order.id}/messages`),
-      ]);
-      setFiles(filesResp?.data?.files || []);
-      setChatMessages(msgResp?.data?.messages || []);    } catch {
-      setFiles([]);
-      setChatMessages([]);
-      message.warning('Не удалось загрузить файлы или чат по заявке');
-    }
+    await fetchOrderDetails(order.id);
   };
 
   const sendManagerMessage = async (values) => {
@@ -98,8 +147,8 @@ const Orders = () => {
     try {
       await axios.post(`/api/orders/${selectedOrder.id}/messages`, { text });
       message.success('Сообщение отправлено в Telegram');
-      const { data } = await axios.get(`/api/orders/${selectedOrder.id}/messages`);
-      setChatMessages(data?.messages || []);    } catch (err) {
+      await fetchOrderDetails(selectedOrder.id);
+    } catch (err) {
       message.error(err?.response?.data?.detail || 'Не удалось отправить сообщение в Telegram');
     } finally {
       setSending(false);
@@ -110,11 +159,18 @@ const Orders = () => {
     try {
       await axios.put(`/api/orders/${id}`, { status });
       fetchOrders();
+    } catch {
+      message.error('Не удалось обновить статус');
+    }
+  };
+
+  const columns = [
+    { title: 'ID', dataIndex: 'id', width: 80 },
     {
       title: 'Клиент',
-      render: (_, r) =>
-        `${r.full_name || 'Без имени'} (${r.username ? '@' + r.username : 'id:' + r.user_id})`,
-    },    { title: 'Тип заявки', dataIndex: 'branch' },
+      render: (_, r) => `${r.full_name || 'Без имени'} (${r.username ? `@${r.username}` : `id:${r.user_id}`})`,
+    },
+    { title: 'Тип заявки', dataIndex: 'branch' },
     { title: 'Кратко', dataIndex: 'summary' },
     {
       title: 'Статус',
@@ -126,19 +182,21 @@ const Orders = () => {
             </Option>
           ))}
         </Select>
-      ),    },
+      ),
+    },
     { title: 'Дата', dataIndex: 'created_at', render: (v) => dayjs(v).format('DD.MM.YYYY HH:mm') },
     { title: 'Открыть', render: (_, r) => <Button onClick={() => openOrder(r)}>Карточка</Button> },
   ];
 
-  const parsedPayload = (() => {
+  const parsedPayload = useMemo(() => {
     if (!selectedOrder) return {};
     try {
-      return JSON.parse(selectedOrder.order_payload || '{}');
+      const payload = JSON.parse(selectedOrder.order_payload || '{}');
+      return payload && typeof payload === 'object' ? payload : {};
     } catch {
-      return selectedOrder.order_payload || {};
+      return {};
     }
-  })();
+  }, [selectedOrder]);
 
   return (
     <div>
@@ -159,14 +217,8 @@ const Orders = () => {
           <Card>
             <Statistic title='Активных' value={stats.active_orders} prefix={<SyncOutlined spin />} />
           </Card>
-        </Col>      </Row>
-      <Space style={{ marginBottom: 12 }}>
-        <span>Фильтр:</span>
-        <Select allowClear placeholder='Все статусы' style={{ width: 220 }} onChange={setStatusFilter}>
-          {statusOptions.map((s) => <Option key={s.value} value={s.value}>{s.label}</Option>)}
-        </Select>
-      </Space>
-      <Table rowKey='id' loading={loading} columns={columns} dataSource={orders} />
+        </Col>
+      </Row>
 
       <Space style={{ marginBottom: 12 }}>
         <span>Фильтр:</span>
@@ -177,7 +229,6 @@ const Orders = () => {
             </Option>
           ))}
         </Select>
-
         <Button onClick={() => { fetchOrders(); fetchStats(); }}>Обновить</Button>
       </Space>
 
@@ -189,7 +240,8 @@ const Orders = () => {
         onCancel={() => setModalVisible(false)}
         footer={null}
         width={1000}
-      >        {selectedOrder && (
+      >
+        {selectedOrder && (
           <Row gutter={16}>
             <Col span={12}>
               <h3>Клиент</h3>
@@ -198,29 +250,48 @@ const Orders = () => {
               </p>
               <p>Пользователь: {selectedOrder.username ? `@${selectedOrder.username}` : `id:${selectedOrder.user_id}`}</p>
               <p>Telegram ID: {selectedOrder.user_id}</p>
-              <p>Тип: {selectedOrder.branch}</p>
+              <p>Тип: {formatPayloadValue('branch', selectedOrder.branch)}</p>
               <Tag color={statusColor[selectedOrder.status]}>
                 {statusOptions.find((s) => s.value === selectedOrder.status)?.label || selectedOrder.status}
               </Tag>
 
-              <h3 style={{ marginTop: 16 }}>Параметры</h3>
-              <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(parsedPayload, null, 2)}</pre>
+              <h3 style={{ marginTop: 16 }}>Параметры заявки</h3>
+              {(Object.entries(parsedPayload).length === 0) && <p>Нет данных</p>}
+              {Object.entries(parsedPayload).map(([key, value]) => (
+                <p key={key}>
+                  <b>{keyLabels[key] || key}:</b> {formatPayloadValue(key, value)}
+                </p>
+              ))}
             </Col>
 
             <Col span={12}>
               <h3>Файлы клиента</h3>
-              {(files || []).filter((f) => f.file_url).map((f) => (
-                <div key={f.id} style={{ marginBottom: 10 }}>
-                  <div style={{ marginBottom: 6 }}>{f.original_name || 'Файл'}</div>
-                  <Image src={f.file_url} alt={f.original_name} style={{ maxWidth: '100%' }} />
-                </div>
-              ))}
+              {(files || []).map((f) => {
+                const fileName = f.original_name || f.file_name || 'Файл';
+                const canLoad = Boolean(f.file_url);
+                const isImage = isImageFile(f);
+                return (
+                  <div key={f.id} style={{ marginBottom: 10 }}>
+                    <div style={{ marginBottom: 6 }}>{fileName}</div>
+                    {canLoad && isImage && <Image src={f.file_url} alt={fileName} style={{ maxWidth: '100%' }} />}
+                    {canLoad && !isImage && (
+                      <Button type='link' href={f.file_url} target='_blank' rel='noopener noreferrer' download={fileName}>
+                        Скачать файл
+                      </Button>
+                    )}
+                    {!canLoad && <span>Файл временно недоступен</span>}
+                  </div>
+                );
+              })}
 
-              <h3 style={{ marginTop: 16 }}>Чат с клиентом</h3>
+              <Space align='center' style={{ marginTop: 16, marginBottom: 8 }}>
+                <h3 style={{ margin: 0 }}>Чат с клиентом</h3>
+                <Button size='small' onClick={() => fetchOrderDetails(selectedOrder.id)} loading={chatLoading}>Обновить</Button>
+              </Space>
               <div style={{ maxHeight: 250, overflow: 'auto', border: '1px solid #eee', padding: 8, marginBottom: 8 }}>
                 {chatMessages.map((m) => (
                   <p key={m.id}>
-                    <b>{m.direction === 'out' ? 'Менеджер' : 'Клиент'}:</b> {m.message_text}
+                    <b>{m.direction === 'out' ? 'Менеджер' : 'Клиент'}:</b> {m.message_text || m.text || ''}
                   </p>
                 ))}
               </div>
@@ -230,7 +301,8 @@ const Orders = () => {
                 </Form.Item>
                 <Button type='primary' htmlType='submit' loading={sending}>
                   Отправить в Telegram
-                </Button>              </Form>
+                </Button>
+              </Form>
             </Col>
           </Row>
         )}

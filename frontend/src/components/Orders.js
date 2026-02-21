@@ -1,3 +1,4 @@
+// frontend/src/components/Orders.js
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Badge,
@@ -229,7 +230,14 @@ const Orders = () => {
             </Option>
           ))}
         </Select>
-        <Button onClick={() => { fetchOrders(); fetchStats(); }}>Обновить</Button>
+        <Button
+          onClick={() => {
+            fetchOrders();
+            fetchStats();
+          }}
+        >
+          Обновить
+        </Button>
       </Space>
 
       <Table rowKey='id' loading={loading} columns={columns} dataSource={orders} />
@@ -256,7 +264,7 @@ const Orders = () => {
               </Tag>
 
               <h3 style={{ marginTop: 16 }}>Параметры заявки</h3>
-              {(Object.entries(parsedPayload).length === 0) && <p>Нет данных</p>}
+              {Object.entries(parsedPayload).length === 0 && <p>Нет данных</p>}
               {Object.entries(parsedPayload).map(([key, value]) => (
                 <p key={key}>
                   <b>{keyLabels[key] || key}:</b> {formatPayloadValue(key, value)}

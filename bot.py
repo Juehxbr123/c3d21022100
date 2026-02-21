@@ -372,10 +372,12 @@ async def forward_order_files_to_orders_chat(bot: Bot, order_id: int, pending_fi
         return
 
     chat_id = normalize_chat_id(raw_chat)
+    sent_file_ids: set[str] = set()
     for item in pending_files:
         tg_file_id = item.get("file_id")
-        if not tg_file_id:
+        if not tg_file_id or tg_file_id in sent_file_ids:
             continue
+        sent_file_ids.add(tg_file_id)
         file_type = str(item.get("file_type") or "").lower()
         try:
             if file_type == "photo" or file_type.startswith("image/"):

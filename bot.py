@@ -10,7 +10,13 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import database
 from config import settings
@@ -22,14 +28,14 @@ UPLOADS_DIR = Path("uploads")
 UPLOADS_DIR.mkdir(exist_ok=True)
 
 
-def user_full_name(user) -> str:
+def user_full_name(user: Any) -> str:
     first = getattr(user, "first_name", "") or ""
     last = getattr(user, "last_name", "") or ""
     name = (first + " " + last).strip()
     return name or getattr(user, "full_name", "") or "Без имени"
 
 
-def user_username(user) -> str | None:
+def user_username(user: Any) -> str | None:
     return getattr(user, "username", None)
 
 
@@ -366,7 +372,6 @@ async def send_order_to_orders_chat(bot: Bot, order_id: int, summary: str) -> No
         logger.exception("Не удалось отправить заявку в чат заказов")
 
 
-
 async def submit_order(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     order_id = int(data.get("order_id", 0) or 0)
@@ -480,7 +485,7 @@ async def on_text(message: Message, state: FSMContext) -> None:
             except Exception:
                 logger.exception("Не удалось сохранить входящее сообщение (material_custom)")
         await send_step(message, "Принято ✅", kb([nav_row()]))
-        # дальше
+
         fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
         await render_step(fake_cb, state, "attach_file")
         return
@@ -495,6 +500,8 @@ async def on_text(message: Message, state: FSMContext) -> None:
                 database.add_order_message(int(st["order_id"]), "in", user_text)
             except Exception:
                 logger.exception("Не удалось сохранить входящее сообщение (description)")
+
+        # ВАЖНО: не автосабмитим. Возвращаемся в review.
         await send_step(message, "Описание добавлено ✅", review_keyboard())
         return
 

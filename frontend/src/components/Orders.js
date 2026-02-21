@@ -294,8 +294,11 @@ const Orders = () => {
 
               <Space align='center' style={{ marginTop: 16, marginBottom: 8 }}>
                 <h3 style={{ margin: 0 }}>Чат с клиентом</h3>
-                <Button size='small' onClick={() => fetchOrderDetails(selectedOrder.id)} loading={chatLoading}>Обновить</Button>
+                <Button size='small' onClick={() => fetchOrderDetails(selectedOrder.id)} loading={chatLoading}>
+                  Обновить
+                </Button>
               </Space>
+
               <div style={{ maxHeight: 250, overflow: 'auto', border: '1px solid #eee', padding: 8, marginBottom: 8 }}>
                 {chatMessages.map((m) => (
                   <p key={m.id}>
@@ -303,6 +306,7 @@ const Orders = () => {
                   </p>
                 ))}
               </div>
+
               <Form onFinish={sendManagerMessage}>
                 <Form.Item name='text' rules={[{ required: true, message: 'Введите сообщение' }]}>
                   <Input.TextArea rows={3} placeholder='Введите сообщение клиенту' />

@@ -101,13 +101,41 @@ def nav_row(include_back: bool = True) -> list[InlineKeyboardButton]:
 def menu_kb() -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if cfg_bool("enabled_menu_print", True):
-        rows.append([InlineKeyboardButton(text=get_cfg("btn_menu_print", "📐 Рассчитать печать"), callback_data="menu:print")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=get_cfg("btn_menu_print", "📐 Рассчитать печать"),
+                    callback_data="menu:print",
+                )
+            ]
+        )
     if cfg_bool("enabled_menu_scan", True):
-        rows.append([InlineKeyboardButton(text=get_cfg("btn_menu_scan", "📡 3D-сканирование"), callback_data="menu:scan")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=get_cfg("btn_menu_scan", "📡 3D-сканирование"),
+                    callback_data="menu:scan",
+                )
+            ]
+        )
     if cfg_bool("enabled_menu_idea", True):
-        rows.append([InlineKeyboardButton(text=get_cfg("btn_menu_idea", "❓ Нет модели / Хочу придумать"), callback_data="menu:idea")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=get_cfg("btn_menu_idea", "❓ Нет модели / Хочу придумать"),
+                    callback_data="menu:idea",
+                )
+            ]
+        )
     if cfg_bool("enabled_menu_about", True):
-        rows.append([InlineKeyboardButton(text=get_cfg("btn_menu_about", "ℹ️ О нас"), callback_data="menu:about")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=get_cfg("btn_menu_about", "ℹ️ О нас"),
+                    callback_data="menu:about",
+                )
+            ]
+        )
     if not rows:
         rows = [[InlineKeyboardButton(text="ℹ️ О нас", callback_data="menu:about")]]
     return kb(rows)
@@ -157,7 +185,11 @@ async def send_step(
 
             p = Path(ref)
             if p.exists() and p.is_file():
-                return await message.answer_photo(photo=FSInputFile(str(p)), caption=text, reply_markup=keyboard)
+                return await message.answer_photo(
+                    photo=FSInputFile(str(p)),
+                    caption=text,
+                    reply_markup=keyboard,
+                )
 
             return await message.answer_photo(photo=ref, caption=text, reply_markup=keyboard)
         except Exception:
@@ -180,13 +212,11 @@ async def send_step_cb(
     if cb.message:
         await send_step(cb.message, text, keyboard, photo_ref)
 
-    # Acknowledge callback only if possible (real callback query). For fake callbacks, just ignore.
     try:
         await cb.answer()
     except RuntimeError:
-        # Fallback: answer via bot instance if available
         try:
-            if cb.message and getattr(cb.message, 'bot', None) and getattr(cb, 'id', None):
+            if cb.message and getattr(cb.message, "bot", None) and getattr(cb, "id", None):
                 await cb.message.bot.answer_callback_query(cb.id)
         except Exception:
             pass
@@ -195,7 +225,12 @@ async def send_step_cb(
 
 
 def payload_summary(payload: dict[str, Any]) -> str:
-    branch_map = {"print": "Рассчитать печать", "scan": "3D-сканирование", "idea": "Нет модели / Хочу придумать", "dialog": "Диалог"}
+    branch_map = {
+        "print": "Рассчитать печать",
+        "scan": "3D-сканирование",
+        "idea": "Нет модели / Хочу придумать",
+        "dialog": "Диалог",
+    }
     field_map = {
         "technology": "Технология",
         "material": "Материал",
@@ -244,16 +279,31 @@ async def show_main(message: Message, state: FSMContext) -> None:
     await state.clear()
     await send_step(
         message,
-        get_cfg("welcome_menu_msg", "Привет! 👋 Я бот Chel3D.\nВыберите, что вам нужно — и я соберу заявку по шагам."),
+        get_cfg(
+            "welcome_menu_msg",
+            "Привет! 👋 Я бот Chel3D.\nВыберите, что вам нужно — и я соберу заявку по шагам.",
+        ),
         menu_kb(),
         photo_ref_for("photo_main_menu"),
     )
 
 
 async def start_order(cb: CallbackQuery, state: FSMContext, branch: str) -> None:
-    order_id = database.create_order(cb.from_user.id, user_username(cb.from_user), user_full_name(cb.from_user), branch)
+    order_id = database.create_order(
+        cb.from_user.id,
+        user_username(cb.from_user),
+        user_full_name(cb.from_user),
+        branch,
+    )
     await state.set_state(Form.step)
-    await state.update_data(order_id=order_id, payload={"branch": branch}, history=[], current_step=None, waiting_text=None)
+    await state.update_data(
+        order_id=order_id,
+        payload={"branch": branch},
+        history=[],
+        current_step=None,
+        waiting_text=None,
+        pending_files=[],
+    )
 
 
 async def render_step(cb: CallbackQuery, state: FSMContext, step: str, from_back: bool = False) -> None:
@@ -268,32 +318,76 @@ async def render_step(cb: CallbackQuery, state: FSMContext, step: str, from_back
     if step == "print_tech":
         rows: list[list[InlineKeyboardButton]] = []
         if cfg_bool("enabled_print_fdm", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_print_fdm", "🧵 FDM (Пластик)"), callback_data="set:technology:FDM")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_print_fdm", "🧵 FDM (Пластик)"),
+                        callback_data="set:technology:FDM",
+                    )
+                ]
+            )
         if cfg_bool("enabled_print_resin", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_print_resin", "💧 Фотополимер"), callback_data="set:technology:Фотополимер")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_print_resin", "💧 Фотополимер"),
+                        callback_data="set:technology:Фотополимер",
+                    )
+                ]
+            )
         if cfg_bool("enabled_print_unknown", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_print_unknown", "🤷 Не знаю"), callback_data="set:technology:Не знаю")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_print_unknown", "🤷 Не знаю"),
+                        callback_data="set:technology:Не знаю",
+                    )
+                ]
+            )
         rows.append(nav_row(False))
-        await send_step_cb(cb, get_cfg("text_print_tech", "🖨 Выберите технологию печати:"), kb(rows), photo_ref_for("photo_print"))
+        await send_step_cb(
+            cb,
+            get_cfg("text_print_tech", "🖨 Выберите технологию печати:"),
+            kb(rows),
+            photo_ref_for("photo_print"),
+        )
         return
 
     if step == "print_material":
-        await send_step_cb(cb, get_cfg("text_select_material", "Выберите материал:"), step_keyboard_for_print(payload), photo_ref_for("photo_print"))
+        await send_step_cb(
+            cb,
+            get_cfg("text_select_material", "Выберите материал:"),
+            step_keyboard_for_print(payload),
+            photo_ref_for("photo_print"),
+        )
         return
 
     if step == "print_material_custom":
         await state.update_data(waiting_text="material_custom")
-        await send_step_cb(cb, get_cfg("text_describe_material", "Опишите материал/смолу свободным текстом:"), kb([nav_row()]), photo_ref_for("photo_print"))
+        await send_step_cb(
+            cb,
+            get_cfg("text_describe_material", "Опишите материал/смолу свободным текстом:"),
+            kb([nav_row()]),
+            photo_ref_for("photo_print"),
+        )
         return
 
     if step == "attach_file":
         rows = [[InlineKeyboardButton(text="❌ У меня нет файла", callback_data="set:file:нет")], nav_row()]
-        await send_step_cb(cb, get_cfg("text_attach_file", "Прикрепите STL/3MF/OBJ или фото. Или нажмите кнопку ниже:"), kb(rows))
+        await send_step_cb(
+            cb,
+            get_cfg("text_attach_file", "Прикрепите STL/3MF/OBJ или фото. Или нажмите кнопку ниже:"),
+            kb(rows),
+        )
         return
 
     if step == "description":
         await state.update_data(waiting_text="description")
-        await send_step_cb(cb, get_cfg("text_describe_task", "Опишите задачу, размеры, сроки и важные детали:"), kb([nav_row()]))
+        await send_step_cb(
+            cb,
+            get_cfg("text_describe_task", "Опишите задачу, размеры, сроки и важные детали:"),
+            kb([nav_row()]),
+        )
         return
 
     if step == "review":
@@ -308,31 +402,104 @@ async def render_step(cb: CallbackQuery, state: FSMContext, step: str, from_back
     if step == "scan_type":
         rows: list[list[InlineKeyboardButton]] = []
         if cfg_bool("enabled_scan_human", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_scan_human", "🧑 Человек"), callback_data="set:scan_type:Человек")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_scan_human", "🧑 Человек"),
+                        callback_data="set:scan_type:Человек",
+                    )
+                ]
+            )
         if cfg_bool("enabled_scan_object", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_scan_object", "📦 Предмет"), callback_data="set:scan_type:Предмет")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_scan_object", "📦 Предмет"),
+                        callback_data="set:scan_type:Предмет",
+                    )
+                ]
+            )
         if cfg_bool("enabled_scan_industrial", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_scan_industrial", "🏭 Промышленный объект"), callback_data="set:scan_type:Промышленный объект")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_scan_industrial", "🏭 Промышленный объект"),
+                        callback_data="set:scan_type:Промышленный объект",
+                    )
+                ]
+            )
         if cfg_bool("enabled_scan_other", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_scan_other", "🤔 Другое"), callback_data="set:scan_type:Другое")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_scan_other", "🤔 Другое"),
+                        callback_data="set:scan_type:Другое",
+                    )
+                ]
+            )
         rows.append(nav_row(False))
-        await send_step_cb(cb, get_cfg("text_scan_type", "📡 Выберите тип объекта для 3D-сканирования:"), kb(rows), photo_ref_for("photo_scan"))
+        await send_step_cb(
+            cb,
+            get_cfg("text_scan_type", "📡 Выберите тип объекта для 3D-сканирования:"),
+            kb(rows),
+            photo_ref_for("photo_scan"),
+        )
         return
 
     if step == "idea_type":
         rows: list[list[InlineKeyboardButton]] = []
         if cfg_bool("enabled_idea_photo", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_idea_photo", "✏️ По фото/эскизу"), callback_data="set:idea_type:По фото/эскизу")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_idea_photo", "✏️ По фото/эскизу"),
+                        callback_data="set:idea_type:По фото/эскизу",
+                    )
+                ]
+            )
         if cfg_bool("enabled_idea_award", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_idea_award", "🏆 Сувенир/Кубок/Медаль"), callback_data="set:idea_type:Сувенир/Кубок/Медаль")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_idea_award", "🏆 Сувенир/Кубок/Медаль"),
+                        callback_data="set:idea_type:Сувенир/Кубок/Медаль",
+                    )
+                ]
+            )
         if cfg_bool("enabled_idea_master", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_idea_master", "📏 Мастер-модель"), callback_data="set:idea_type:Мастер-модель")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_idea_master", "📏 Мастер-модель"),
+                        callback_data="set:idea_type:Мастер-модель",
+                    )
+                ]
+            )
         if cfg_bool("enabled_idea_sign", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_idea_sign", "🎨 Вывески"), callback_data="set:idea_type:Вывески")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_idea_sign", "🎨 Вывески"),
+                        callback_data="set:idea_type:Вывески",
+                    )
+                ]
+            )
         if cfg_bool("enabled_idea_other", True):
-            rows.append([InlineKeyboardButton(text=get_cfg("btn_idea_other", "🤔 Другое"), callback_data="set:idea_type:Другое")])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=get_cfg("btn_idea_other", "🤔 Другое"),
+                        callback_data="set:idea_type:Другое",
+                    )
+                ]
+            )
         rows.append(nav_row(False))
-        await send_step_cb(cb, get_cfg("text_idea_type", "✏️ Выберите направление:"), kb(rows), photo_ref_for("photo_idea"))
+        await send_step_cb(
+            cb,
+            get_cfg("text_idea_type", "✏️ Выберите направление:"),
+            kb(rows),
+            photo_ref_for("photo_idea"),
+        )
         return
 
     if step == "about":
@@ -342,12 +509,20 @@ async def render_step(cb: CallbackQuery, state: FSMContext, step: str, from_back
         rows.append([InlineKeyboardButton(text=get_cfg("btn_about_contacts", "📞 Контакты"), callback_data="about:contacts")])
         rows.append([InlineKeyboardButton(text=get_cfg("btn_about_map", "📍 На карте"), callback_data="about:map")])
         rows.append(nav_row(False))
-        await send_step_cb(cb, get_cfg("about_text", "🏢 Chel3D — 3D-печать, моделирование и сканирование.\nВыберите раздел:"), kb(rows), photo_ref_for("photo_about"))
+        await send_step_cb(
+            cb,
+            get_cfg("about_text", "🏢 Chel3D — 3D-печать, моделирование и сканирование.\nВыберите раздел:"),
+            kb(rows),
+            photo_ref_for("photo_about"),
+        )
         return
 
     if cb.message:
         await show_main(cb.message, state)
-    await cb.answer()
+    try:
+        await cb.answer()
+    except Exception:
+        pass
 
 
 async def go_back(cb: CallbackQuery, state: FSMContext) -> None:
@@ -395,21 +570,20 @@ async def forward_order_files_to_orders_chat(bot: Bot, order_id: int) -> None:
         return
 
     chat_id = normalize_chat_id(raw_chat)
-<<<<<<< codex/fix-chat-loading-in-crm-requests-coc4rf
-    files = database.list_order_files(order_id)
-    for item in files:
-=======
+
     try:
         files = database.list_order_files(order_id)
     except Exception:
         logger.exception("Не удалось получить файлы заявки из БД")
         return
 
+    sent_file_ids: set[str] = set()
     for item in files or []:
->>>>>>> main
-        tg_file_id = item.get("telegram_file_id")
-        if not tg_file_id:
+        tg_file_id = item.get("telegram_file_id") or item.get("file_id")
+        if not tg_file_id or tg_file_id in sent_file_ids:
             continue
+        sent_file_ids.add(tg_file_id)
+
         file_type = str(item.get("file_type") or item.get("mime_type") or "").lower()
         try:
             if file_type == "photo" or file_type.startswith("image/"):
@@ -420,8 +594,6 @@ async def forward_order_files_to_orders_chat(bot: Bot, order_id: int) -> None:
             logger.exception("Не удалось переслать вложение заявки в чат заказов")
 
 
-<<<<<<< codex/fix-chat-loading-in-crm-requests-coc4rf
-=======
 async def forward_file_to_orders_chat(message: Message, order_id: int) -> None:
     raw_chat = get_orders_chat_id()
     if not raw_chat:
@@ -445,28 +617,17 @@ async def forward_file_to_orders_chat(message: Message, order_id: int) -> None:
         logger.exception("Не удалось переслать файл в чат заказов")
 
 
->>>>>>> main
-
 async def submit_order(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     order_id = int(data.get("order_id", 0) or 0)
     payload: dict[str, Any] = data.get("payload", {})
     summary = payload_summary(payload)
-    should_forward_files = False
-
-    if order_id:
-        order = database.get_order(order_id) or {}
-        should_forward_files = (order.get("status") or "draft") in {"draft", ""}
 
     if order_id:
         database.finalize_order(order_id, summary)
+
     await send_order_to_orders_chat(message.bot, order_id, summary)
-<<<<<<< codex/fix-chat-loading-in-crm-requests-coc4rf
-    if should_forward_files:
-        await forward_order_files_to_orders_chat(message.bot, order_id)
-=======
     await forward_order_files_to_orders_chat(message.bot, order_id)
->>>>>>> main
 
     ok_text = get_cfg("text_submit_ok", "✅ Заявка отправлена! Менеджер скоро напишет вам в этот чат.")
     await send_step(message, ok_text, kb([nav_row(include_back=False)]))
@@ -586,11 +747,8 @@ async def on_text(message: Message, state: FSMContext) -> None:
                 database.add_order_message(int(st["order_id"]), "in", user_text)
             except Exception:
                 logger.exception("Не удалось сохранить входящее сообщение (description)")
-<<<<<<< codex/fix-chat-loading-in-crm-requests-coc4rf
-=======
 
         # ВАЖНО: не автосабмитим. Возвращаемся в review.
->>>>>>> main
         await send_step(message, "Описание добавлено ✅", review_keyboard())
         return
 
@@ -633,7 +791,9 @@ async def on_file(message: Message, state: FSMContext) -> None:
 
     payload: dict[str, Any] = st.get("payload", {})
     payload["file"] = file_name or "файл"
-    await state.update_data(payload=payload)
+    pending_files: list[dict[str, str]] = st.get("pending_files", [])
+    pending_files.append({"file_id": tg_file_id, "file_type": file_type or ""})
+    await state.update_data(payload=payload, pending_files=pending_files)
     await persist(state)
 
     await forward_file_to_orders_chat(message, order_id)

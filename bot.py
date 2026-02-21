@@ -191,6 +191,15 @@ def payload_summary(payload: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def review_keyboard() -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="➕ Добавить описание", callback_data="review:add_description")],
+        [InlineKeyboardButton(text="✅ Отправить заявку", callback_data="review:send")],
+        nav_row(),
+    ]
+    return kb(rows)
+
+
 async def persist(state: FSMContext) -> None:
     data = await state.get_data()
     order_id = data.get("order_id")
@@ -221,7 +230,7 @@ async def show_main(message: Message, state: FSMContext) -> None:
 async def start_order(cb: CallbackQuery, state: FSMContext, branch: str) -> None:
     order_id = database.create_order(cb.from_user.id, user_username(cb.from_user), user_full_name(cb.from_user), branch)
     await state.set_state(Form.step)
-    await state.update_data(order_id=order_id, payload={"branch": branch}, history=[], current_step=None, waiting_text=None)
+    await state.update_data(order_id=order_id, payload={"branch": branch}, history=[], current_step=None, waiting_text=None, pending_files=[])
 
 
 async def render_step(cb: CallbackQuery, state: FSMContext, step: str, from_back: bool = False) -> None:
@@ -262,6 +271,15 @@ async def render_step(cb: CallbackQuery, state: FSMContext, step: str, from_back
     if step == "description":
         await state.update_data(waiting_text="description")
         await send_step_cb(cb, get_cfg("text_describe_task", "Опишите задачу, размеры, сроки и важные детали:"), kb([nav_row()]))
+        return
+
+    if step == "review":
+        summary = payload_summary(payload)
+        await send_step_cb(
+            cb,
+            f"Проверьте заявку и отправьте её менеджеру:\n\n{summary}",
+            review_keyboard(),
+        )
         return
 
     if step == "scan_type":
@@ -326,22 +344,60 @@ async def send_order_to_orders_chat(bot: Bot, order_id: int, summary: str) -> No
     raw_chat = get_orders_chat_id()
     if not raw_chat:
         return
+
+    contact_block = ""
+    order = database.get_order(order_id) if order_id else None
+    if order:
+        full_name = order.get("full_name") or "Без имени"
+        username = order.get("username")
+        username_line = f"@{username}" if username else "нет username"
+        user_id = int(order.get("user_id") or 0)
+        contact_block = (
+            f"👤 Клиент: {full_name}\n"
+            f"🔖 Username: {username_line}\n"
+            f"🆔 Telegram ID: {user_id}\n"
+            f"🔗 tg://user?id={user_id}\n\n"
+        )
+
     chat_id = normalize_chat_id(raw_chat)
     try:
-        await bot.send_message(chat_id=chat_id, text=f"🆕 Заявка №{order_id}\n\n{summary}")
+        await bot.send_message(chat_id=chat_id, text=f"🆕 Заявка №{order_id}\n\n{contact_block}{summary}")
     except Exception:
         logger.exception("Не удалось отправить заявку в чат заказов")
 
 
-async def submit_order(bot: Bot, message: Message, state: FSMContext) -> None:
+async def forward_order_files_to_orders_chat(bot: Bot, order_id: int, pending_files: list[dict[str, str]]) -> None:
+    raw_chat = get_orders_chat_id()
+    if not raw_chat or not order_id or not pending_files:
+        return
+
+    chat_id = normalize_chat_id(raw_chat)
+    for item in pending_files:
+        tg_file_id = item.get("file_id")
+        if not tg_file_id:
+            continue
+        file_type = str(item.get("file_type") or "").lower()
+        try:
+            if file_type == "photo" or file_type.startswith("image/"):
+                await bot.send_photo(chat_id=chat_id, photo=tg_file_id, caption=f"📎 Фото к заявке №{order_id}")
+            else:
+                await bot.send_document(chat_id=chat_id, document=tg_file_id, caption=f"📎 Файл к заявке №{order_id}")
+        except Exception:
+            logger.exception("Не удалось переслать вложение заявки в чат заказов")
+
+
+
+async def submit_order(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     order_id = int(data.get("order_id", 0) or 0)
     payload: dict[str, Any] = data.get("payload", {})
     summary = payload_summary(payload)
+    pending_files: list[dict[str, str]] = data.get("pending_files", [])
 
     if order_id:
         database.finalize_order(order_id, summary)
-    await send_order_to_orders_chat(bot, order_id, summary)
+    await send_order_to_orders_chat(message.bot, order_id, summary)
+    await forward_order_files_to_orders_chat(message.bot, order_id, pending_files)
 
     ok_text = get_cfg("text_submit_ok", "✅ Заявка отправлена! Менеджер скоро напишет вам в этот чат.")
     await send_step(message, ok_text, kb([nav_row(include_back=False)]))
@@ -417,17 +473,17 @@ async def on_set(cb: CallbackQuery, state: FSMContext) -> None:
         return
 
     if field in {"scan_type", "idea_type"}:
-        await render_step(cb, state, "description")
+        await render_step(cb, state, "review")
         return
 
     if field == "file":
-        await render_step(cb, state, "description")
+        await render_step(cb, state, "review")
         return
 
     await cb.answer()
 
 
-async def on_text(message: Message, state: FSMContext, bot: Bot) -> None:
+async def on_text(message: Message, state: FSMContext) -> None:
     st = await state.get_data()
     waiting = st.get("waiting_text")
     if not waiting:
@@ -436,9 +492,15 @@ async def on_text(message: Message, state: FSMContext, bot: Bot) -> None:
     payload: dict[str, Any] = st.get("payload", {})
 
     if waiting == "material_custom":
-        payload["material_custom"] = (message.text or "").strip()
+        user_text = (message.text or "").strip()
+        payload["material_custom"] = user_text
         await state.update_data(payload=payload, waiting_text=None)
         await persist(state)
+        if st.get("order_id") and user_text:
+            try:
+                database.add_order_message(int(st["order_id"]), "in", user_text)
+            except Exception:
+                logger.exception("Не удалось сохранить входящее сообщение (material_custom)")
         await send_step(message, "Принято ✅", kb([nav_row()]))
         # дальше
         fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
@@ -446,14 +508,20 @@ async def on_text(message: Message, state: FSMContext, bot: Bot) -> None:
         return
 
     if waiting == "description":
-        payload["description"] = (message.text or "").strip()
+        user_text = (message.text or "").strip()
+        payload["description"] = user_text
         await state.update_data(payload=payload, waiting_text=None)
         await persist(state)
-        await submit_order(bot, message, state)
+        if st.get("order_id") and user_text:
+            try:
+                database.add_order_message(int(st["order_id"]), "in", user_text)
+            except Exception:
+                logger.exception("Не удалось сохранить входящее сообщение (description)")
+        await send_step(message, "Описание добавлено ✅", review_keyboard())
         return
 
 
-async def on_file(message: Message, state: FSMContext, bot: Bot) -> None:
+async def on_file(message: Message, state: FSMContext) -> None:
     st = await state.get_data()
     order_id = int(st.get("order_id", 0) or 0)
     if not order_id:
@@ -483,19 +551,34 @@ async def on_file(message: Message, state: FSMContext, bot: Bot) -> None:
         logger.exception("Не удалось записать файл в БД")
 
     try:
-        f = await bot.get_file(tg_file_id)
+        f = await message.bot.get_file(tg_file_id)
         dst = UPLOADS_DIR / f"{order_id}_{Path(file_name or tg_file_id).name}"
-        await bot.download_file(f.file_path, destination=dst)
+        await message.bot.download_file(f.file_path, destination=dst)
     except Exception:
         logger.exception("Не удалось скачать файл локально")
 
     payload: dict[str, Any] = st.get("payload", {})
     payload["file"] = file_name or "файл"
-    await state.update_data(payload=payload)
+    pending_files: list[dict[str, str]] = st.get("pending_files", [])
+    pending_files.append({"file_id": tg_file_id, "file_type": file_type or ""})
+    await state.update_data(payload=payload, pending_files=pending_files)
     await persist(state)
 
     fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
-    await render_step(fake_cb, state, "description")
+    await render_step(fake_cb, state, "review")
+
+
+async def on_review(cb: CallbackQuery, state: FSMContext) -> None:
+    action = (cb.data or "").split(":", 1)[1] if cb.data else ""
+    if action == "add_description":
+        await render_step(cb, state, "description")
+        return
+    if action == "send":
+        if cb.message:
+            await submit_order(cb.message, state)
+        await cb.answer()
+        return
+    await cb.answer()
 
 
 async def handle_internal_send_message(request: web.Request) -> web.Response:
@@ -554,10 +637,11 @@ async def main() -> None:
     dp.callback_query.register(on_nav, F.data.startswith("nav:"))
     dp.callback_query.register(on_about, F.data.startswith("about:"))
     dp.callback_query.register(on_set, F.data.startswith("set:"))
+    dp.callback_query.register(on_review, F.data.startswith("review:"))
 
-    dp.message.register(lambda m, s, b=bot: on_text(m, s, b), F.text)
+    dp.message.register(on_text, F.text)
     dp.message.register(
-        lambda m, s, b=bot: on_file(m, s, b),
+        on_file,
         F.content_type.in_({ContentType.DOCUMENT, ContentType.PHOTO}),
     )
 

@@ -372,6 +372,32 @@ async def send_order_to_orders_chat(bot: Bot, order_id: int, summary: str) -> No
         logger.exception("Не удалось отправить заявку в чат заказов")
 
 
+async def forward_order_files_to_orders_chat(bot: Bot, order_id: int) -> None:
+    raw_chat = get_orders_chat_id()
+    if not raw_chat or not order_id:
+        return
+
+    chat_id = normalize_chat_id(raw_chat)
+    try:
+        files = database.list_order_files(order_id)
+    except Exception:
+        logger.exception("Не удалось получить файлы заявки из БД")
+        return
+
+    for item in files or []:
+        tg_file_id = item.get("telegram_file_id")
+        if not tg_file_id:
+            continue
+        file_type = str(item.get("file_type") or item.get("mime_type") or "").lower()
+        try:
+            if file_type == "photo" or file_type.startswith("image/"):
+                await bot.send_photo(chat_id=chat_id, photo=tg_file_id, caption=f"📎 Фото к заявке №{order_id}")
+            else:
+                await bot.send_document(chat_id=chat_id, document=tg_file_id, caption=f"📎 Файл к заявке №{order_id}")
+        except Exception:
+            logger.exception("Не удалось переслать вложение заявки в чат заказов")
+
+
 async def forward_file_to_orders_chat(message: Message, order_id: int) -> None:
     raw_chat = get_orders_chat_id()
     if not raw_chat:
@@ -405,6 +431,7 @@ async def submit_order(message: Message, state: FSMContext) -> None:
     if order_id:
         database.finalize_order(order_id, summary)
     await send_order_to_orders_chat(message.bot, order_id, summary)
+    await forward_order_files_to_orders_chat(message.bot, order_id)
 
     ok_text = get_cfg("text_submit_ok", "✅ Заявка отправлена! Менеджер скоро напишет вам в этот чат.")
     await send_step(message, ok_text, kb([nav_row(include_back=False)]))

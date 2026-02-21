@@ -10,7 +10,13 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import database
 from config import settings
@@ -22,14 +28,14 @@ UPLOADS_DIR = Path("uploads")
 UPLOADS_DIR.mkdir(exist_ok=True)
 
 
-def user_full_name(user) -> str:
+def user_full_name(user: Any) -> str:
     first = getattr(user, "first_name", "") or ""
     last = getattr(user, "last_name", "") or ""
     name = (first + " " + last).strip()
     return name or getattr(user, "full_name", "") or "Без имени"
 
 
-def user_username(user) -> str | None:
+def user_username(user: Any) -> str | None:
     return getattr(user, "username", None)
 
 
@@ -191,6 +197,15 @@ def payload_summary(payload: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def review_keyboard() -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="➕ Добавить описание", callback_data="review:add_description")],
+        [InlineKeyboardButton(text="✅ Отправить заявку", callback_data="review:send")],
+        nav_row(),
+    ]
+    return kb(rows)
+
+
 async def persist(state: FSMContext) -> None:
     data = await state.get_data()
     order_id = data.get("order_id")
@@ -262,6 +277,15 @@ async def render_step(cb: CallbackQuery, state: FSMContext, step: str, from_back
     if step == "description":
         await state.update_data(waiting_text="description")
         await send_step_cb(cb, get_cfg("text_describe_task", "Опишите задачу, размеры, сроки и важные детали:"), kb([nav_row()]))
+        return
+
+    if step == "review":
+        summary = payload_summary(payload)
+        await send_step_cb(
+            cb,
+            f"Проверьте заявку и отправьте её менеджеру:\n\n{summary}",
+            review_keyboard(),
+        )
         return
 
     if step == "scan_type":
@@ -348,7 +372,6 @@ async def send_order_to_orders_chat(bot: Bot, order_id: int, summary: str) -> No
         logger.exception("Не удалось отправить заявку в чат заказов")
 
 
-
 async def submit_order(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     order_id = int(data.get("order_id", 0) or 0)
@@ -433,11 +456,11 @@ async def on_set(cb: CallbackQuery, state: FSMContext) -> None:
         return
 
     if field in {"scan_type", "idea_type"}:
-        await render_step(cb, state, "description")
+        await render_step(cb, state, "review")
         return
 
     if field == "file":
-        await render_step(cb, state, "description")
+        await render_step(cb, state, "review")
         return
 
     await cb.answer()
@@ -462,7 +485,7 @@ async def on_text(message: Message, state: FSMContext) -> None:
             except Exception:
                 logger.exception("Не удалось сохранить входящее сообщение (material_custom)")
         await send_step(message, "Принято ✅", kb([nav_row()]))
-        # дальше
+
         fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
         await render_step(fake_cb, state, "attach_file")
         return
@@ -477,7 +500,9 @@ async def on_text(message: Message, state: FSMContext) -> None:
                 database.add_order_message(int(st["order_id"]), "in", user_text)
             except Exception:
                 logger.exception("Не удалось сохранить входящее сообщение (description)")
-        await submit_order(message, state)
+
+        # ВАЖНО: не автосабмитим. Возвращаемся в review.
+        await send_step(message, "Описание добавлено ✅", review_keyboard())
         return
 
 
@@ -523,7 +548,20 @@ async def on_file(message: Message, state: FSMContext) -> None:
     await persist(state)
 
     fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
-    await render_step(fake_cb, state, "description")
+    await render_step(fake_cb, state, "review")
+
+
+async def on_review(cb: CallbackQuery, state: FSMContext) -> None:
+    action = (cb.data or "").split(":", 1)[1] if cb.data else ""
+    if action == "add_description":
+        await render_step(cb, state, "description")
+        return
+    if action == "send":
+        if cb.message:
+            await submit_order(cb.message, state)
+        await cb.answer()
+        return
+    await cb.answer()
 
 
 async def handle_internal_send_message(request: web.Request) -> web.Response:
@@ -582,6 +620,7 @@ async def main() -> None:
     dp.callback_query.register(on_nav, F.data.startswith("nav:"))
     dp.callback_query.register(on_about, F.data.startswith("about:"))
     dp.callback_query.register(on_set, F.data.startswith("set:"))
+    dp.callback_query.register(on_review, F.data.startswith("review:"))
 
     dp.message.register(on_text, F.text)
     dp.message.register(

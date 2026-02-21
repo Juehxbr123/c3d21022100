@@ -10,7 +10,13 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import database
 from config import settings
@@ -22,14 +28,14 @@ UPLOADS_DIR = Path("uploads")
 UPLOADS_DIR.mkdir(exist_ok=True)
 
 
-def user_full_name(user) -> str:
+def user_full_name(user: Any) -> str:
     first = getattr(user, "first_name", "") or ""
     last = getattr(user, "last_name", "") or ""
     name = (first + " " + last).strip()
     return name or getattr(user, "full_name", "") or "Без имени"
 
 
-def user_username(user) -> str | None:
+def user_username(user: Any) -> str | None:
     return getattr(user, "username", None)
 
 
@@ -372,8 +378,13 @@ async def forward_order_files_to_orders_chat(bot: Bot, order_id: int) -> None:
         return
 
     chat_id = normalize_chat_id(raw_chat)
-    files = database.list_order_files(order_id)
-    for item in files:
+    try:
+        files = database.list_order_files(order_id)
+    except Exception:
+        logger.exception("Не удалось получить файлы заявки из БД")
+        return
+
+    for item in files or []:
         tg_file_id = item.get("telegram_file_id")
         if not tg_file_id:
             continue
@@ -385,6 +396,29 @@ async def forward_order_files_to_orders_chat(bot: Bot, order_id: int) -> None:
                 await bot.send_document(chat_id=chat_id, document=tg_file_id, caption=f"📎 Файл к заявке №{order_id}")
         except Exception:
             logger.exception("Не удалось переслать вложение заявки в чат заказов")
+
+
+async def forward_file_to_orders_chat(message: Message, order_id: int) -> None:
+    raw_chat = get_orders_chat_id()
+    if not raw_chat:
+        return
+    chat_id = normalize_chat_id(raw_chat)
+
+    try:
+        if message.photo:
+            await message.bot.send_photo(
+                chat_id=chat_id,
+                photo=message.photo[-1].file_id,
+                caption=f"📎 Фото к заявке №{order_id}",
+            )
+        elif message.document:
+            await message.bot.send_document(
+                chat_id=chat_id,
+                document=message.document.file_id,
+                caption=f"📎 Файл к заявке №{order_id}",
+            )
+    except Exception:
+        logger.exception("Не удалось переслать файл в чат заказов")
 
 
 
@@ -502,7 +536,7 @@ async def on_text(message: Message, state: FSMContext) -> None:
             except Exception:
                 logger.exception("Не удалось сохранить входящее сообщение (material_custom)")
         await send_step(message, "Принято ✅", kb([nav_row()]))
-        # дальше
+
         fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
         await render_step(fake_cb, state, "attach_file")
         return
@@ -517,6 +551,8 @@ async def on_text(message: Message, state: FSMContext) -> None:
                 database.add_order_message(int(st["order_id"]), "in", user_text)
             except Exception:
                 logger.exception("Не удалось сохранить входящее сообщение (description)")
+
+        # ВАЖНО: не автосабмитим. Возвращаемся в review.
         await send_step(message, "Описание добавлено ✅", review_keyboard())
         return
 
@@ -561,6 +597,8 @@ async def on_file(message: Message, state: FSMContext) -> None:
     payload["file"] = file_name or "файл"
     await state.update_data(payload=payload)
     await persist(state)
+
+    await forward_file_to_orders_chat(message, order_id)
 
     fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
     await render_step(fake_cb, state, "review")

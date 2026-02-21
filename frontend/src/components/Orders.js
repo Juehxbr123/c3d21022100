@@ -59,7 +59,7 @@ const valueLabels = {
   },
   file: {
     none: 'нет',
-    нет: 'нет',
+    'нет': 'нет',
   },
 };
 
@@ -230,14 +230,7 @@ const Orders = () => {
             </Option>
           ))}
         </Select>
-        <Button
-          onClick={() => {
-            fetchOrders();
-            fetchStats();
-          }}
-        >
-          Обновить
-        </Button>
+        <Button onClick={() => { fetchOrders(); fetchStats(); }}>Обновить</Button>
       </Space>
 
       <Table rowKey='id' loading={loading} columns={columns} dataSource={orders} />
@@ -264,7 +257,7 @@ const Orders = () => {
               </Tag>
 
               <h3 style={{ marginTop: 16 }}>Параметры заявки</h3>
-              {Object.entries(parsedPayload).length === 0 && <p>Нет данных</p>}
+              {(Object.entries(parsedPayload).length === 0) && <p>Нет данных</p>}
               {Object.entries(parsedPayload).map(([key, value]) => (
                 <p key={key}>
                   <b>{keyLabels[key] || key}:</b> {formatPayloadValue(key, value)}
@@ -277,12 +270,12 @@ const Orders = () => {
               {(files || []).map((f) => {
                 const fileName = f.original_name || f.file_name || 'Файл';
                 const canLoad = Boolean(f.file_url);
-                const img = isImageFile(f);
+                const isImage = isImageFile(f);
                 return (
                   <div key={f.id} style={{ marginBottom: 10 }}>
                     <div style={{ marginBottom: 6 }}>{fileName}</div>
-                    {canLoad && img && <Image src={f.file_url} alt={fileName} style={{ maxWidth: '100%' }} />}
-                    {canLoad && !img && (
+                    {canLoad && isImage && <Image src={f.file_url} alt={fileName} style={{ maxWidth: '100%' }} />}
+                    {canLoad && !isImage && (
                       <Button type='link' href={f.file_url} target='_blank' rel='noopener noreferrer' download={fileName}>
                         Скачать файл
                       </Button>
@@ -294,9 +287,7 @@ const Orders = () => {
 
               <Space align='center' style={{ marginTop: 16, marginBottom: 8 }}>
                 <h3 style={{ margin: 0 }}>Чат с клиентом</h3>
-                <Button size='small' onClick={() => fetchOrderDetails(selectedOrder.id)} loading={chatLoading}>
-                  Обновить
-                </Button>
+                <Button size='small' onClick={() => fetchOrderDetails(selectedOrder.id)} loading={chatLoading}>Обновить</Button>
               </Space>
               <div style={{ maxHeight: 250, overflow: 'auto', border: '1px solid #eee', padding: 8, marginBottom: 8 }}>
                 {chatMessages.map((m) => (

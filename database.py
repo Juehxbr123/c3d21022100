@@ -269,16 +269,62 @@ def add_order_file(
     file_type: str | None,
 ) -> None:
     with db_cursor() as (_, cur):
-        cur.execute(
-            '''
-            INSERT INTO order_files (order_id, telegram_file_id, file_unique_id, file_name, file_type, created_at)
-            VALUES (%s, %s, %s, %s, %s, NOW())
-            ''',
-            (order_id, telegram_file_id, file_unique_id, file_name, file_type),
-        )
+        try:
+            cur.execute(
+                '''
+                INSERT INTO order_files (order_id, telegram_file_id, file_unique_id, file_name, file_type, created_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ''',
+                (order_id, telegram_file_id, file_unique_id, file_name, file_type),
+            )
+        except Exception:
+            cur.execute(
+                '''
+                INSERT INTO order_files (order_id, telegram_file_id, original_name, mime_type, created_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ''',
+                (order_id, telegram_file_id, file_name, file_type),
+            )
 
 
 def list_order_files(order_id: int) -> list[dict[str, Any]]:
     with db_cursor() as (_, cur):
-        cur.execute("SELECT * FROM order_files WHERE order_id=%s ORDER BY created_at DESC", (order_id,))
+        try:
+            cur.execute(
+                '''
+                SELECT
+                    id,
+                    order_id,
+                    telegram_file_id,
+                    file_unique_id,
+                    file_name,
+                    file_type,
+                    created_at,
+                    file_name AS original_name,
+                    file_type AS mime_type
+                FROM order_files
+                WHERE order_id=%s
+                ORDER BY created_at DESC
+                ''',
+                (order_id,),
+            )
+        except Exception:
+            cur.execute(
+                '''
+                SELECT
+                    id,
+                    order_id,
+                    telegram_file_id,
+                    NULL AS file_unique_id,
+                    original_name AS file_name,
+                    mime_type AS file_type,
+                    created_at,
+                    original_name,
+                    mime_type
+                FROM order_files
+                WHERE order_id=%s
+                ORDER BY created_at DESC
+                ''',
+                (order_id,),
+            )
         return [dict(r) for r in cur.fetchall()]

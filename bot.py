@@ -372,6 +372,30 @@ async def send_order_to_orders_chat(bot: Bot, order_id: int, summary: str) -> No
         logger.exception("Не удалось отправить заявку в чат заказов")
 
 
+async def forward_file_to_orders_chat(message: Message, order_id: int) -> None:
+    raw_chat = get_orders_chat_id()
+    if not raw_chat:
+        return
+    chat_id = normalize_chat_id(raw_chat)
+
+    try:
+        if message.photo:
+            await message.bot.send_photo(
+                chat_id=chat_id,
+                photo=message.photo[-1].file_id,
+                caption=f"📎 Фото к заявке №{order_id}",
+            )
+        elif message.document:
+            await message.bot.send_document(
+                chat_id=chat_id,
+                document=message.document.file_id,
+                caption=f"📎 Файл к заявке №{order_id}",
+            )
+    except Exception:
+        logger.exception("Не удалось переслать файл в чат заказов")
+
+
+
 async def submit_order(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     order_id = int(data.get("order_id", 0) or 0)
@@ -546,6 +570,8 @@ async def on_file(message: Message, state: FSMContext) -> None:
     payload["file"] = file_name or "файл"
     await state.update_data(payload=payload)
     await persist(state)
+
+    await forward_file_to_orders_chat(message, order_id)
 
     fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
     await render_step(fake_cb, state, "review")

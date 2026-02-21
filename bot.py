@@ -172,9 +172,26 @@ async def send_step_cb(
     keyboard: Optional[InlineKeyboardMarkup] = None,
     photo_ref: Optional[str] = None,
 ) -> None:
+    """Send a step message and safely acknowledge callback.
+
+    NOTE: We sometimes call render_step() from non-callback contexts by creating a fake CallbackQuery.
+    Such objects are not 'mounted' to a Bot instance, so cb.answer() raises RuntimeError in aiogram v3.
+    """
     if cb.message:
         await send_step(cb.message, text, keyboard, photo_ref)
-    await cb.answer()
+
+    # Acknowledge callback only if possible (real callback query). For fake callbacks, just ignore.
+    try:
+        await cb.answer()
+    except RuntimeError:
+        # Fallback: answer via bot instance if available
+        try:
+            if cb.message and getattr(cb.message, 'bot', None) and getattr(cb, 'id', None):
+                await cb.message.bot.answer_callback_query(cb.id)
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 def payload_summary(payload: dict[str, Any]) -> str:
@@ -378,6 +395,10 @@ async def forward_order_files_to_orders_chat(bot: Bot, order_id: int) -> None:
         return
 
     chat_id = normalize_chat_id(raw_chat)
+<<<<<<< codex/fix-chat-loading-in-crm-requests-coc4rf
+    files = database.list_order_files(order_id)
+    for item in files:
+=======
     try:
         files = database.list_order_files(order_id)
     except Exception:
@@ -385,6 +406,7 @@ async def forward_order_files_to_orders_chat(bot: Bot, order_id: int) -> None:
         return
 
     for item in files or []:
+>>>>>>> main
         tg_file_id = item.get("telegram_file_id")
         if not tg_file_id:
             continue
@@ -398,6 +420,8 @@ async def forward_order_files_to_orders_chat(bot: Bot, order_id: int) -> None:
             logger.exception("Не удалось переслать вложение заявки в чат заказов")
 
 
+<<<<<<< codex/fix-chat-loading-in-crm-requests-coc4rf
+=======
 async def forward_file_to_orders_chat(message: Message, order_id: int) -> None:
     raw_chat = get_orders_chat_id()
     if not raw_chat:
@@ -421,6 +445,7 @@ async def forward_file_to_orders_chat(message: Message, order_id: int) -> None:
         logger.exception("Не удалось переслать файл в чат заказов")
 
 
+>>>>>>> main
 
 async def submit_order(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
@@ -436,8 +461,12 @@ async def submit_order(message: Message, state: FSMContext) -> None:
     if order_id:
         database.finalize_order(order_id, summary)
     await send_order_to_orders_chat(message.bot, order_id, summary)
+<<<<<<< codex/fix-chat-loading-in-crm-requests-coc4rf
     if should_forward_files:
         await forward_order_files_to_orders_chat(message.bot, order_id)
+=======
+    await forward_order_files_to_orders_chat(message.bot, order_id)
+>>>>>>> main
 
     ok_text = get_cfg("text_submit_ok", "✅ Заявка отправлена! Менеджер скоро напишет вам в этот чат.")
     await send_step(message, ok_text, kb([nav_row(include_back=False)]))
@@ -557,8 +586,11 @@ async def on_text(message: Message, state: FSMContext) -> None:
                 database.add_order_message(int(st["order_id"]), "in", user_text)
             except Exception:
                 logger.exception("Не удалось сохранить входящее сообщение (description)")
+<<<<<<< codex/fix-chat-loading-in-crm-requests-coc4rf
+=======
 
         # ВАЖНО: не автосабмитим. Возвращаемся в review.
+>>>>>>> main
         await send_step(message, "Описание добавлено ✅", review_keyboard())
         return
 

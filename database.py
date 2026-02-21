@@ -228,13 +228,22 @@ def update_order_status(order_id: int, status: str) -> None:
 
 def add_order_message(order_id: int, direction: str, text: str) -> None:
     with db_cursor() as (_, cur):
-        cur.execute(
-            '''
-            INSERT INTO order_messages (order_id, direction, text, created_at)
-            VALUES (%s, %s, %s, NOW())
-            ''',
-            (order_id, direction, text),
-        )
+        try:
+            cur.execute(
+                '''
+                INSERT INTO order_messages (order_id, direction, message_text, created_at)
+                VALUES (%s, %s, %s, NOW())
+                ''',
+                (order_id, direction, text),
+            )
+        except Exception:
+            cur.execute(
+                '''
+                INSERT INTO order_messages (order_id, direction, text, created_at)
+                VALUES (%s, %s, %s, NOW())
+                ''',
+                (order_id, direction, text),
+            )
 
 
 def list_order_messages(order_id: int, limit: int = 30) -> list[dict[str, Any]]:

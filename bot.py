@@ -326,14 +326,30 @@ async def send_order_to_orders_chat(bot: Bot, order_id: int, summary: str) -> No
     raw_chat = get_orders_chat_id()
     if not raw_chat:
         return
+
+    contact_block = ""
+    order = database.get_order(order_id) if order_id else None
+    if order:
+        full_name = order.get("full_name") or "Без имени"
+        username = order.get("username")
+        username_line = f"@{username}" if username else "нет username"
+        user_id = int(order.get("user_id") or 0)
+        contact_block = (
+            f"👤 Клиент: {full_name}\n"
+            f"🔖 Username: {username_line}\n"
+            f"🆔 Telegram ID: {user_id}\n"
+            f"🔗 tg://user?id={user_id}\n\n"
+        )
+
     chat_id = normalize_chat_id(raw_chat)
     try:
-        await bot.send_message(chat_id=chat_id, text=f"🆕 Заявка №{order_id}\n\n{summary}")
+        await bot.send_message(chat_id=chat_id, text=f"🆕 Заявка №{order_id}\n\n{contact_block}{summary}")
     except Exception:
         logger.exception("Не удалось отправить заявку в чат заказов")
 
 
-async def submit_order(bot: Bot, message: Message, state: FSMContext) -> None:
+
+async def submit_order(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     order_id = int(data.get("order_id", 0) or 0)
     payload: dict[str, Any] = data.get("payload", {})
@@ -341,7 +357,7 @@ async def submit_order(bot: Bot, message: Message, state: FSMContext) -> None:
 
     if order_id:
         database.finalize_order(order_id, summary)
-    await send_order_to_orders_chat(bot, order_id, summary)
+    await send_order_to_orders_chat(message.bot, order_id, summary)
 
     ok_text = get_cfg("text_submit_ok", "✅ Заявка отправлена! Менеджер скоро напишет вам в этот чат.")
     await send_step(message, ok_text, kb([nav_row(include_back=False)]))
@@ -427,7 +443,7 @@ async def on_set(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
 
 
-async def on_text(message: Message, state: FSMContext, bot: Bot) -> None:
+async def on_text(message: Message, state: FSMContext) -> None:
     st = await state.get_data()
     waiting = st.get("waiting_text")
     if not waiting:
@@ -436,9 +452,15 @@ async def on_text(message: Message, state: FSMContext, bot: Bot) -> None:
     payload: dict[str, Any] = st.get("payload", {})
 
     if waiting == "material_custom":
-        payload["material_custom"] = (message.text or "").strip()
+        user_text = (message.text or "").strip()
+        payload["material_custom"] = user_text
         await state.update_data(payload=payload, waiting_text=None)
         await persist(state)
+        if st.get("order_id") and user_text:
+            try:
+                database.add_order_message(int(st["order_id"]), "in", user_text)
+            except Exception:
+                logger.exception("Не удалось сохранить входящее сообщение (material_custom)")
         await send_step(message, "Принято ✅", kb([nav_row()]))
         # дальше
         fake_cb = CallbackQuery(id="0", from_user=message.from_user, chat_instance="0", message=message, data="")
@@ -446,14 +468,20 @@ async def on_text(message: Message, state: FSMContext, bot: Bot) -> None:
         return
 
     if waiting == "description":
-        payload["description"] = (message.text or "").strip()
+        user_text = (message.text or "").strip()
+        payload["description"] = user_text
         await state.update_data(payload=payload, waiting_text=None)
         await persist(state)
-        await submit_order(bot, message, state)
+        if st.get("order_id") and user_text:
+            try:
+                database.add_order_message(int(st["order_id"]), "in", user_text)
+            except Exception:
+                logger.exception("Не удалось сохранить входящее сообщение (description)")
+        await submit_order(message, state)
         return
 
 
-async def on_file(message: Message, state: FSMContext, bot: Bot) -> None:
+async def on_file(message: Message, state: FSMContext) -> None:
     st = await state.get_data()
     order_id = int(st.get("order_id", 0) or 0)
     if not order_id:
@@ -483,9 +511,9 @@ async def on_file(message: Message, state: FSMContext, bot: Bot) -> None:
         logger.exception("Не удалось записать файл в БД")
 
     try:
-        f = await bot.get_file(tg_file_id)
+        f = await message.bot.get_file(tg_file_id)
         dst = UPLOADS_DIR / f"{order_id}_{Path(file_name or tg_file_id).name}"
-        await bot.download_file(f.file_path, destination=dst)
+        await message.bot.download_file(f.file_path, destination=dst)
     except Exception:
         logger.exception("Не удалось скачать файл локально")
 
@@ -555,9 +583,9 @@ async def main() -> None:
     dp.callback_query.register(on_about, F.data.startswith("about:"))
     dp.callback_query.register(on_set, F.data.startswith("set:"))
 
-    dp.message.register(lambda m, s, b=bot: on_text(m, s, b), F.text)
+    dp.message.register(on_text, F.text)
     dp.message.register(
-        lambda m, s, b=bot: on_file(m, s, b),
+        on_file,
         F.content_type.in_({ContentType.DOCUMENT, ContentType.PHOTO}),
     )
 
